@@ -1,6 +1,7 @@
 // 1. SETUP EXPRESS
 const express = require('express');
 const cors = require('cors');
+const { ObjectId } = require('mongodb');
 const MongoClient = require('mongodb').MongoClient;
 const dbname = "sctp05-recipes"; // CHANGE THIS TO YOUR ACTUAL DATABASE NAME
 
@@ -46,10 +47,48 @@ async function main() {
 
     // There's a convention for RESTFul API when it comes to writing the URL
     // The URL should function like a file path  (always a resource, a noun)
+    // Allow the user to search by name, tags, cuisine, ingredients:
+    // eg
+    // ?name=chicken rice
+    // ?tags=appetizer&ingredients=chicken,duck
     app.get("/recipes", async function(req,res){
         try {
+
+            // this is the same as let tags = req.query.tags etc. etc.
+            // syntax: object destructuring
+            let {tags, cuisine, ingredients, name} = req.query;
+
+            let criteria = {};
+
+            if (tags) {
+                criteria["tags.name"] = {
+                    "$in": tags.split(",")
+                }
+            }
+
+            if (cuisine) {
+                criteria["cuisine.name"] = {
+                    "$regex": cuisine, "$options":"i"
+                }
+            }
+
+            if (ingredients) {
+                criteria["ingredients.name"] = {
+                    "$in": ingredients.split(",").map(function(i){
+                        // case-in sensiitve search
+                        return new RegExp(i, 'i');
+                    })
+                }
+            }
+
+            if (name) {
+                criteria["name"] = {
+                    "$regex": name, "$options":"i"
+                }
+            }
+
             // mongo shell: db.recipes.find({},{name:1, cuisine:1, tags:1, prepTime:1})
-            let recipes = await db.collection("recipes").find()
+            let recipes = await db.collection("recipes").find(criteria)
                 .project({
                     "name": 1,
                     "cuisine": 1,
@@ -61,6 +100,92 @@ async function main() {
             })
         } catch (error) {
             console.error("Error fetching recipes:", error);
+            res.status(500);
+        }
+    })
+
+    // /recipes/12345A => get the details of the recipe with _id 12345A
+    app.get("/recipes/:id", async function(req,res){
+        try {
+
+            // get the id of the recipe that we want to get full details off
+            let id = req.params.id;
+
+            // mongo shell: db.recipes.find({
+            //   _id:ObjectId(id)
+            //  })
+            let recipe = await db.collection('recipes').findOne({
+                "_id": new ObjectId(id)
+            });
+
+            // check the recipe is not null
+            // because .findOne will return null if no document
+            // not found
+            if (!recipe) {
+                return res.status(404).json({
+                    "error":"Sorry, recipie not found"
+                })
+            }
+
+            // send back a response
+            res.json({
+                'recipes': recipe
+            })
+
+        } catch (error) {
+            console.error("Error fetching recipe:", error);
+            res.status(500);
+        }
+    });
+
+    // we use app.post for HTTP METHOD POST - usually to add new data
+    app.post("/recipes", async function(req,res){
+        try {
+
+            // name, cuisine, prepTime, cookTime, servings, ingredients, instructions and tags
+            // when we use POST, PATCH or PUT to send data to the server, the data are in req.body
+            let { name, cuisine, prepTime, cookTime, servings, ingredients, instructions, tags} = req.body;
+
+            // basic validation: make sure that name, cuisine, ingredients, instructions and tags
+            if (!name || !cuisine || !ingredients || !instructions || !tags) {
+                return res.status(400).json({
+                    "error":"Missing fields required"
+                })
+            }
+
+            // find the _id of the related cuisine and add it to the new recipe
+            let cuisineDoc = await db.collection('cuisines').findOne({
+                "name": cuisine
+            })
+
+            if (!cuisineDoc) {
+                return res.status(400).json({"error":"Invalid cuisine"})
+            }
+
+            // find all the tags that the client want to attach to the recipe document
+            const tagDocuments = await db.collection('tags').find({
+                'name': {
+                    '$in': tags
+                }
+            }).toArray();
+
+            let newRecipeDocument = {
+                name,
+                "cuisine": cuisineDoc,
+                prepTime, cookTime, servings, ingredients, instructions,
+                "tags": tagDocuments
+            }
+
+            // insert the new recipe document into the collection
+            let result = await db.collection("recipes").insertOne(newRecipeDocument);
+            res.status(201).json({
+                'message':'New recipe has been created',
+                'recipeId': result.insertedId // insertedId is the _id of the new document
+            })
+
+
+        } catch (e) {
+            console.error(e);
             res.status(500);
         }
     })
