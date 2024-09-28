@@ -189,6 +189,99 @@ async function main() {
             res.status(500);
         }
     })
+
+    app.put("/recipes/:id", async function(req,res){
+        try {
+
+            let id = req.params.id;
+
+            // name, cuisine, prepTime, cookTime, servings, ingredients, instructions and tags
+            // when we use POST, PATCH or PUT to send data to the server, the data are in req.body
+            let { name, cuisine, prepTime, cookTime, servings, ingredients, instructions, tags} = req.body;
+
+            // basic validation: make sure that name, cuisine, ingredients, instructions and tags
+            if (!name || !cuisine || !ingredients || !instructions || !tags) {
+                return res.status(400).json({
+                    "error":"Missing fields required"
+                })
+            }
+
+            // find the _id of the related cuisine and add it to the new recipe
+            let cuisineDoc = await db.collection('cuisines').findOne({
+                "name": cuisine
+            })
+
+            if (!cuisineDoc) {
+                return res.status(400).json({"error":"Invalid cuisine"})
+            }
+
+            // find all the tags that the client want to attach to the recipe document
+            const tagDocuments = await db.collection('tags').find({
+                'name': {
+                    '$in': tags
+                }
+            }).toArray();
+
+            let updatedRecipeDocument = {
+                name,
+                "cuisine": cuisineDoc,
+                prepTime, cookTime, servings, ingredients, instructions,
+                "tags": tagDocuments
+            }
+
+            // insert the new recipe document into the collection
+            let result = await db.collection("recipes")
+                .updateOne({
+                    "_id": new ObjectId(id)
+                }, {
+                    "$set": updatedRecipeDocument
+                });
+
+                // if there is no matches, means no update took place
+            if (result.matchedCount == 0) {
+                return res.status(404).json({
+                    "error":"Recipe not found"
+                })
+            }
+
+            res.status(200).json({
+                "message":"Recipe updated"
+            })
+
+
+        } catch (e) {
+            console.error(e);
+            res.status(500);
+        }
+    })
+
+    app.delete("/recipes/:id", async function(req,res){
+        try {
+            let id = req.params.id;
+
+            // mongo shell:
+            // db.recipes.deleteOne({
+            //    _id:ObjectId)id
+            //})
+            let results = await db.collection('recipes').deleteOne({
+                "_id": new ObjectId(id)
+            });
+
+            if (results.deletedCount == 0) {
+                return res.status(404).json({
+                    "error":"Recipe not found"
+                });
+            }
+
+            res.json({
+                "message":"Recipe has been deleted successful"
+            })
+
+        } catch (e) {
+            console.error(e);
+            res.status(500);
+        }
+    })
 }
 main();
 
