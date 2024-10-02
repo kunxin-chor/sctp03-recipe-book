@@ -8,7 +8,7 @@ app.use(cors()); // enable cross origin resources sharing
 // 1b. enable JSON processing (i.e allow clients to send JSON data to our server)
 app.use(express.json());
 
-app.get("/foobar", function(req,res){
+app.get("/foobar2", function(req,res){
     res.json({
         "message":"hello"
     })
